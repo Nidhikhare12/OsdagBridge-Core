@@ -88,14 +88,82 @@ def ch4_analysis(asum, fig_paths, bridge: "ReportDataBridge"):
         ["Total Load Deflection Check Status", _total_status],
     ]
 
-    # Table 4.2 rows — reactions per load case, taken straight from rxn_summary.
-    rxn_body = ("\n\\hline\n").join(
-        _tex(lc) + r" & "
-        + _tex((rxn_summary.get(lc) or {}).get('left_kN', '')) + r" & "
-        + _tex((rxn_summary.get(lc) or {}).get('right_kN', '')) + r" \\[6pt]"
-        for lc in rxn_summary
+    # Table 4.2 rows — individual girder reactions, taken straight from the
+    # per-girder summary.  The summary's aggregate fields remain available for
+    # the existing Table 4.1 and other consumers.
+    vertical_support_reactions = bridge.output_dict.get(
+        "build_vertical_support_reactions", {}
     )
+    girder_labels = []
+    for reaction_data in vertical_support_reactions.values():
+        for label in reaction_data:
+            if label not in girder_labels:
+                girder_labels.append(label)
 
+    def _reaction_cell(reaction_data, girder_label, side):
+        """Get and format one girder's left or right support reaction."""
+        value = (reaction_data or {}).get(girder_label, {}).get(side)
+        return _fmt(value)
+
+    rxn_body_parts = []
+    for lc, reaction_data in vertical_support_reactions.items():
+        girder_rows = []
+        for girder_label in girder_labels:
+            girder_rows.append(
+                " & ".join([
+                    _reaction_cell(reaction_data, girder_label, "left_kN"),
+                    _reaction_cell(reaction_data, girder_label, "right_kN"),
+                ])
+            )
+
+        if girder_rows:
+            load_case_cell = (
+                r"\multirow[c]{" + str(len(girder_rows)) + r"}{=}{"
+                r"\parbox[c]{\linewidth}{\centering " + _tex(lc) + "}}"
+            )
+            rxn_body_parts.extend(
+                [
+                    (load_case_cell if row_idx == 0 else "") + " & " + girder_label + " & " + row + (
+                        r" \\[6pt]" if row_idx == len(girder_rows) - 1 else r" \\*"
+                    )
+                    for row_idx, (girder_label, row) in enumerate(
+                        zip(girder_labels, girder_rows)
+                    )
+                ]
+            )
+        else:
+            rxn_body_parts.append(
+                r"\multirow[c]{1}{=}{\parbox[c]{\linewidth}{\centering "
+                + _tex(lc) + r"}} & --- & --- & --- \\[6pt]"
+            )
+
+        rxn_body_parts.append(r"\hline")
+
+    rxn_body = "\n".join(rxn_body_parts)
+    reaction_header_rows = [[
+        "Load Case",
+        "Girder",
+        "Ra (kN)",
+        "Rb (kN)",
+    ]]
+    reaction_widths = [4.5, 2.5, 4.5, 4.5]
+    reaction_align = ["C", "C", "C", "C"]
+    # Support reaction schematic matching the reference diagram.
+    support_reaction_diagram = r"""
+    \begin{figure}[H]
+    \centering
+    \setlength{\unitlength}{1mm}
+    \begin{picture}(110,34)
+        \put(0,0){\color{gray}\framebox(110,34){}}
+        \put(20,21){\line(1,0){70}}
+        \put(20,7){\vector(0,1){12}}
+        \put(90,7){\vector(0,1){12}}
+        \put(17,3){\makebox(6,3){\small $R_a$}}
+        \put(87,3){\makebox(6,3){\small $R_b$}}
+    \end{picture}
+    \caption*{\small Support reaction schematic showing the upward reactions $R_a$ and $R_b$.}
+    \end{figure}
+    """
     return r"""
 \chapter{Analysis Results}
 
@@ -103,11 +171,16 @@ A grillage model was used for structural analysis. The deck is idealized as a gr
 
 """ + render_analysis_demands_table(merged_body) + r"""
 
+\vspace{1em}
+\noindent
+""" + support_reaction_diagram + r"""
+
 """ + render_report_table(
-    "Reactions at Supports", [],
-    headers=["Load Case", "Left Support (kN)", "Right Support (kN)"],
-    widths=[5.2, 5.2, 5.2], align=["C", "C", "C"],
-    longtable=True, escape=False, body_latex=rxn_body + "\n\\hline") + r"""
+    "Vertical Support Reactions", [],
+    headers=[""] * 4,
+    widths=reaction_widths, align=reaction_align,
+    longtable=True, escape=False, body_latex=rxn_body + "\n\\hline",
+    header_rows=reaction_header_rows) + r"""
 
 """ + render_report_table(
     "Deflection Summary (Live Load & Total Load)", defl_rows,

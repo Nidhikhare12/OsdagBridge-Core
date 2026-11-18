@@ -1152,7 +1152,9 @@ class PlateGirderBridge:
 
         report_inputs = self.input_dict.copy()
         output_dict   = dict(self.output_dict)  # MappingProxyType → dict
-
+        output_dict["build_vertical_support_reactions"] = getattr(
+            self, "_build_vertical_support_reactions", {}
+        )
         # ── Chapter 4: analysis summary for Tables ──────────────────
         lc_sum  = getattr(self, '_lc_summary',       None)
         rxn_sum = getattr(self, '_reaction_summary',  None)
@@ -2897,6 +2899,7 @@ class PlateGirderBridge:
             self._load_effects_cache        = {}
             self._lc_summary       = {}
             self._reaction_summary= {}
+            self._build_vertical_support_reactions = {}
             self.output_dict["load_effects_cache"] = {}
             return
         edge_dist = self.get_edge_dist()
@@ -2909,6 +2912,7 @@ class PlateGirderBridge:
         ch4 = build_forces_summary(rh, self._load_effects_cache)
         self._lc_summary       = ch4["load_cases"]
         self._reaction_summary= ch4["reactions"]
+        self._build_vertical_support_reactions = ch4["support_reactions"]
 
         # Persist the envelope cache so the strict output_dict-only resolvers
         # (bending/shear envelope + by-load-case results tables) can read it.
