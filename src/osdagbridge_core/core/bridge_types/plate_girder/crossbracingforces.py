@@ -212,8 +212,8 @@ _OSDAG_PROFILE_MAP = {
     "Angle":                    ("Angles",                 None),
     "Double Angle (Long Leg)":  ("Back to Back Angles",    "Long Leg"),
     "Double Angle (Short Leg)": ("Back to Back Angles",    "Short Leg"),
-    "Channel":                  ("Channels",               None),
-    "Double Channel":           ("Back to Back Channels",  None),
+    "Channel":                  ("Channels",               "Web"),
+    "Double Channel":           ("Back to Back Channels",  "Web"),
 }
 
 
@@ -275,7 +275,7 @@ def resolve_diag_chord_force(vz_kn: float, cos_alpha: float) -> tuple[float, flo
 # Property-key-suffix -> details-dict-key, shared by every bracing member's
 # section-property dump (diagonal / top_chord / bottom_chord, CB and ED alike).
 _SECTION_PROP_FIELDS = {
-    "L": "L", "H": "H", "B": "B", "TW": "tw", "TF": "tF", "RZ": "rz", "M": "M", "A": "A",
+    "H": "H", "B": "B", "TW": "tw", "TF": "tF", "RZ": "rz", "M": "M", "A": "A",
     "IZ": "Iz", "IV": "Iv", "RV": "rv", "ZZ": "Zz", "ZV": "Zv", "ZUZ": "Zuz", "ZUV": "Zuv",
 }
 
@@ -293,7 +293,7 @@ def populate_section_properties(
 
     if leg_keys and details["type"] in ("ANGLE", "CHANNEL"):
         h_k, w_k, t_k = leg_keys
-        h_src = "H" if details["type"] == "ANGLE" else "L"
+        h_src = "H"
         output_dict[make_pair_key(h_k, pair_id)] = details[h_src] * 1000.0
         output_dict[make_pair_key(w_k, pair_id)] = details["B"] * 1000.0
         output_dict[make_pair_key(t_k, pair_id)] = details["tw"] * 1000.0
@@ -1063,6 +1063,10 @@ class CrossBracingForces:
                         _CB_DIAG_PROP_KEYS, section_type_key=KEY_MP_CB_BRACING_SECTION_TYPE,
                         leg_keys=(KEY_MP_CB_DIAGONAL_LEG_H, KEY_MP_CB_DIAGONAL_LEG_W, KEY_MP_CB_DIAGONAL_THICKNESS),
                     )
+                    # Store L with actual diagonal length from geometry, not girder spacing
+                    diag_len = forces_dict.get("geometry", {}).get(pair, {}).get("diagonal_length_m")
+                    if diag_len is not None:
+                        bridge.output_dict[make_pair_key(KEY_TD_CB_PROP_L, pair_id)] = float(diag_len)
 
             top_details = None
             if top_chord_enabled and top_chord_des:
@@ -1074,6 +1078,10 @@ class CrossBracingForces:
                         _CB_TOP_CHORD_PROP_KEYS, section_type_key=KEY_MP_CB_TOP_CHORD_SECTION_TYPE,
                         leg_keys=(KEY_MP_CB_TOP_CHORD_LEG_H, KEY_MP_CB_TOP_CHORD_LEG_W, KEY_MP_CB_TOP_CHORD_THICKNESS),
                     )
+                    # Store L with girder spacing — chords run horizontally between girders
+                    chord_len = forces_dict.get("geometry", {}).get(pair, {}).get("girder_spacing_m")
+                    if chord_len is not None:
+                        bridge.output_dict[make_pair_key(KEY_TD_CB_TOP_CHORD_PROP_L, pair_id)] = float(chord_len)
 
             if bottom_chord_enabled and bottom_chord_des:
                 bc_details = top_details if (top_chord_des == bottom_chord_des and top_details) \
@@ -1085,6 +1093,10 @@ class CrossBracingForces:
                         _CB_BOTTOM_CHORD_PROP_KEYS, section_type_key=KEY_MP_CB_BOTTOM_CHORD_SECTION_TYPE,
                         leg_keys=(KEY_MP_CB_BOTTOM_CHORD_LEG_H, KEY_MP_CB_BOTTOM_CHORD_LEG_W, KEY_MP_CB_BOTTOM_CHORD_THICKNESS),
                     )
+                    # Store L with girder spacing — chords run horizontally between girders
+                    chord_len = forces_dict.get("geometry", {}).get(pair, {}).get("girder_spacing_m")
+                    if chord_len is not None:
+                        bridge.output_dict[make_pair_key(KEY_TD_CB_BOTTOM_CHORD_PROP_L, pair_id)] = float(chord_len)
 
         bridge.crossbracing_design_results = pair_designs
         return pair_designs
@@ -1131,9 +1143,11 @@ class CrossBracingForces:
         print(sep)
 
 
-def make_prop_keys(*consts) -> dict:
-    """Zip the 15 _SECTION_PROP_FIELDS names onto a member's KEY_TD_*_PROP_* constants."""
-    return dict(zip(_SECTION_PROP_FIELDS.keys(), consts))
+def make_prop_keys(l_const, *consts) -> dict:
+    """Zip l_const for L, and the 14 _SECTION_PROP_FIELDS names onto a member's KEY_TD_*_PROP_* constants."""
+    d = {"L": l_const}
+    d.update(zip(_SECTION_PROP_FIELDS.keys(), consts))
+    return d
 
 
 _CB_DIAG_PROP_KEYS = make_prop_keys(
@@ -1556,6 +1570,8 @@ class EndDiaphragmForces:
                             _ED_DIAG_PROP_KEYS, section_type_key=KEY_MP_ED_BRACING_SECTION,
                             leg_keys=(KEY_MP_ED_DIAGONAL_LEG_H, KEY_MP_ED_DIAGONAL_LEG_W, KEY_MP_ED_DIAGONAL_THICKNESS),
                         )
+                        if L_d is not None:
+                            bridge.output_dict[make_pair_key(KEY_TD_ED_PROP_L, pair_id)] = float(L_d)
 
                 # Populate chords
                 if top_chord_enabled and top_chord_des:
@@ -1567,6 +1583,7 @@ class EndDiaphragmForces:
                             _ED_TOP_CHORD_PROP_KEYS, section_type_key=KEY_MP_ED_TOP_CHORD_SECTION_TYPE,
                             leg_keys=(KEY_MP_ED_TOP_CHORD_LEG_H, KEY_MP_ED_TOP_CHORD_LEG_W, KEY_MP_ED_TOP_CHORD_THICKNESS),
                         )
+                        bridge.output_dict[make_pair_key(KEY_TD_ED_TOP_CHORD_PROP_L, pair_id)] = float(s)
 
                 if bottom_chord_enabled and bottom_chord_des:
                     bridge.output_dict[make_pair_key(KEY_MP_ED_BOTTOM_CHORD_SECTION_DESIG, pair_id)] = bottom_chord_des
@@ -1577,6 +1594,7 @@ class EndDiaphragmForces:
                             _ED_BOTTOM_CHORD_PROP_KEYS, section_type_key=KEY_MP_ED_BOTTOM_CHORD_SECTION_TYPE,
                             leg_keys=(KEY_MP_ED_BOTTOM_CHORD_LEG_H, KEY_MP_ED_BOTTOM_CHORD_LEG_W, KEY_MP_ED_BOTTOM_CHORD_THICKNESS),
                         )
+                        bridge.output_dict[make_pair_key(KEY_TD_ED_BOTTOM_CHORD_PROP_L, pair_id)] = float(s)
 
             # -- CASE B: ROLLED BEAM DIAPHRAGM --
             elif ed_type == "Rolled Beam":
